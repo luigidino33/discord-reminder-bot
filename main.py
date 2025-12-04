@@ -5,37 +5,21 @@ from datetime import time as dtime
 from zoneinfo import ZoneInfo  # Python 3.9+
 
 # ====== CONFIGURE THESE ======
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")  # put your token in an env variable
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")  # environment variable
 CHANNEL_ID = 1370117597416394774        # replace with the ID of the channel to send reminders in
 USER_ID = 753101826920022126
-REMINDER_MESSAGE = f"⏰ <@{USER_ID}> meds time! Please remember to take your medicine 💊"
-
 # ==============================
 
 intents = discord.Intents.default()
+intents.message_content = False  # set to True only if you add commands later
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 SGT = ZoneInfo("Asia/Singapore")
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    if not med_reminder.is_running():
-        med_reminder.start()
-    print("Med reminder loop started.")
 
-# This loop runs every day at 11:00 and 18:00 SGT
-@tasks.loop(
-    time=[
-        dtime(hour=1, minute=5, tzinfo=SGT),  # 6:00 SGT
-        dtime(hour=11, minute=0, tzinfo=SGT),  # 11:00 SGT
-        dtime(hour=18, minute=0, tzinfo=SGT),  # 18:00 / 6 PM SGT
-    ]
-)
-async def med_reminder():
+async def send_reminder(message: str):
     channel = bot.get_channel(CHANNEL_ID)
     if channel is None:
-        # Fallback: try fetching the channel (e.g., if not in cache yet)
         try:
             channel = await bot.fetch_channel(CHANNEL_ID)
         except Exception as e:
@@ -43,10 +27,67 @@ async def med_reminder():
             return
 
     try:
-        await channel.send(REMINDER_MESSAGE)
-        print("Sent med reminder.")
+        await channel.send(message)
+        print(f"Sent reminder: {message}")
     except Exception as e:
         print(f"Failed to send reminder: {e}")
+
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+    # Start all loops
+    if not mucopro_7am.is_running():
+        mucopro_7am.start()
+    if not mucopro_1230pm.is_running():
+        mucopro_1230pm.start()
+    if not pantec_6pm.is_running():
+        pantec_6pm.start()
+    if not mucopro_7pm.is_running():
+        mucopro_7pm.start()
+    if not zycast_9pm.is_running():
+        zycast_9pm.start()
+
+    print("All med reminder loops started.")
+
+    # 🔥 SEND STARTUP MESSAGE
+    await send_reminder("✅ Bot is online! Med reminder schedule loaded. 💊")
+
+
+# 7:00 AM – Mucopro
+@tasks.loop(time=dtime(hour=7, minute=0, tzinfo=SGT))
+async def mucopro_7am():
+    msg = f"⏰ <@{USER_ID}> 7:00 AM Mucopro time! 💊"
+    await send_reminder(msg)
+
+
+# 12:30 PM – Mucopro
+@tasks.loop(time=dtime(hour=12, minute=30, tzinfo=SGT))
+async def mucopro_1230pm():
+    msg = f"⏰ <@{USER_ID}> 12:30 PM Mucopro time! 💊"
+    await send_reminder(msg)
+
+
+# 6:00 PM – Pantec-DSR
+@tasks.loop(time=dtime(hour=18, minute=0, tzinfo=SGT))
+async def pantec_6pm():
+    msg = f"⏰ <@{USER_ID}> 6:00 PM Pantec-DSR time! 💊"
+    await send_reminder(msg)
+
+
+# 7:00 PM – Mucopro
+@tasks.loop(time=dtime(hour=19, minute=0, tzinfo=SGT))
+async def mucopro_7pm():
+    msg = f"⏰ <@{USER_ID}> 7:00 PM Mucopro time! 💊"
+    await send_reminder(msg)
+
+
+# 9:00 PM – Zycast
+@tasks.loop(time=dtime(hour=21, minute=0, tzinfo=SGT))
+async def zycast_9pm():
+    msg = f"⏰ <@{USER_ID}> 9:00 PM Zycast time! 💊"
+    await send_reminder(msg)
 
 
 if __name__ == "__main__":
