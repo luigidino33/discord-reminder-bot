@@ -6,8 +6,10 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 
 # ====== CONFIGURE THESE ======
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")  # put your token in an env variable
-CHANNEL_ID = 123456789012345678         # replace with the ID of the channel to send reminders in
-REMINDER_MESSAGE = "⏰ Meds time! Please remember to take your medicine 💊"
+CHANNEL_ID = 1370117597416394774        # replace with the ID of the channel to send reminders in
+USER_ID = 753101826920022126
+REMINDER_MESSAGE = f"⏰ <@{USER_ID}> meds time! Please remember to take your medicine 💊"
+
 # ==============================
 
 intents = discord.Intents.default()
@@ -25,6 +27,7 @@ async def on_ready():
 # This loop runs every day at 11:00 and 18:00 SGT
 @tasks.loop(
     time=[
+        dtime(hour=0, minute=30, tzinfo=SGT),  # 6:00 SGT
         dtime(hour=11, minute=0, tzinfo=SGT),  # 11:00 SGT
         dtime(hour=18, minute=0, tzinfo=SGT),  # 18:00 / 6 PM SGT
     ]
