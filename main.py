@@ -27,7 +27,7 @@ async def on_ready():
 # This loop runs every day at 11:00 and 18:00 SGT
 @tasks.loop(
     time=[
-        dtime(hour=0, minute=40, tzinfo=SGT),  # 6:00 SGT
+        dtime(hour=0, minute=50, tzinfo=SGT),  # 6:00 SGT
         dtime(hour=11, minute=0, tzinfo=SGT),  # 11:00 SGT
         dtime(hour=18, minute=0, tzinfo=SGT),  # 18:00 / 6 PM SGT
     ]
