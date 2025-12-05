@@ -24,6 +24,22 @@ SGT = ZoneInfo("Asia/Singapore")
 PORT = int(os.environ.get("PORT", "10000"))
 _web_server_started = False
 
+# Med schedule (all times in SGT)
+# Each id must be unique and stable
+MED_SCHEDULE = [
+    {"id": "mucopro_7am",   "label": "7:00 AM",   "hour": 7,  "minute": 0,  "med": "Mucopro 💊"},
+    {"id": "mucopro_1230",  "label": "12:30 PM",  "hour": 12, "minute": 30, "med": "Mucopro 💊"},
+    {"id": "pantec_6pm",    "label": "6:00 PM",   "hour": 18, "minute": 0,  "med": "Pantec-DSR 💊"},
+    {"id": "mucopro_7pm",   "label": "7:00 PM",   "hour": 19, "minute": 0,  "med": "Mucopro 💊"},
+    {"id": "zycast_9pm",    "label": "9:00 PM",   "hour": 21, "minute": 0,  "med": "Zycast 💊"},
+]
+
+# Track when each med was last sent (by date)
+last_sent_date = {}  # { "mucopro_7am": date, ... }
+
+# How late we still allow sending a missed reminder (in minutes)
+GRACE_MINUTES = 120  # 2 hours
+
 
 async def send_reminder(message: str):
     """Send a message to the configured channel."""
@@ -66,19 +82,10 @@ async def on_ready():
 
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
-    # Start all meds reminder loops
-    if not mucopro_7am.is_running():
-        mucopro_7am.start()
-    if not mucopro_1230pm.is_running():
-        mucopro_1230pm.start()
-    if not pantec_6pm.is_running():
-        pantec_6pm.start()
-    if not mucopro_7pm.is_running():
-        mucopro_7pm.start()
-    if not zycast_9pm.is_running():
-        zycast_9pm.start()
-
-    print("All med reminder loops started.")
+    # Start meds loop
+    if not meds_loop.is_running():
+        meds_loop.start()
+        print("Meds loop started.")
 
     # Start tiny web server once (for Render health check)
     if not _web_server_started:
@@ -89,41 +96,56 @@ async def on_ready():
     await send_reminder("✅ Bot is online! Med reminder schedule loaded. 💊")
 
 
-# =============== SCHEDULED REMINDERS ===============
-
-# 7:00 AM – Mucopro
-@tasks.loop(time=dtime(hour=7, minute=0, tzinfo=SGT))
-async def mucopro_7am():
-    msg = f"⏰ <@{USER_ID}> 7:00 AM Mucopro time! 💊"
-    await send_reminder(msg)
+@bot.event
+async def on_disconnect():
+    print("⚠️ Bot disconnected from Discord gateway.")
 
 
-# 12:30 PM – Mucopro
-@tasks.loop(time=dtime(hour=12, minute=30, tzinfo=SGT))
-async def mucopro_1230pm():
-    msg = f"⏰ <@{USER_ID}> 12:30 PM Mucopro time! 💊"
-    await send_reminder(msg)
+@bot.event
+async def on_resumed():
+    print("✅ Bot resumed Discord session.")
 
 
-# 6:00 PM – Pantec-DSR
-@tasks.loop(time=dtime(hour=18, minute=0, tzinfo=SGT))
-async def pantec_6pm():
-    msg = f"⏰ <@{USER_ID}> 6:00 PM Pantec-DSR time! Pantec-DSR 💊"
-    await send_reminder(msg)
+# =============== SCHEDULED REMINDERS (RESILIENT LOOP) ===============
 
+@tasks.loop(minutes=1)
+async def meds_loop():
+    """Check every minute which meds should be sent, and send any due ones once per day."""
+    now = datetime.now(SGT)
+    today = now.date()
 
-# 7:00 PM – Mucopro
-@tasks.loop(time=dtime(hour=19, minute=0, tzinfo=SGT))
-async def mucopro_7pm():
-    msg = f"⏰ <@{USER_ID}> 7:00 PM Mucopro time! 💊"
-    await send_reminder(msg)
+    for item in MED_SCHEDULE:
+        sched_dt = datetime(
+            year=today.year,
+            month=today.month,
+            day=today.day,
+            hour=item["hour"],
+            minute=item["minute"],
+            tzinfo=SGT,
+        )
 
+        # If scheduled time is in the future, skip
+        if now < sched_dt:
+            continue
 
-# 9:00 PM – Zycast
-@tasks.loop(time=dtime(hour=21, minute=0, tzinfo=SGT))
-async def zycast_9pm():
-    msg = f"⏰ <@{USER_ID}> 9:00 PM Zycast time! 💊"
-    await send_reminder(msg)
+        # How late are we compared to the scheduled time?
+        delay_minutes = (now - sched_dt).total_seconds() / 60.0
+
+        # Skip if we're way too late (past the grace window)
+        if delay_minutes > GRACE_MINUTES:
+            continue
+
+        last_date = last_sent_date.get(item["id"])
+
+        # Only send once per day
+        if last_date == today:
+            continue
+
+        # Send the reminder
+        msg = f"⏰ <@{USER_ID}> {item['label']} {item['med']} time!"
+        await send_reminder(msg)
+        last_sent_date[item["id"]] = today
+        print(f"Marked {item['id']} as sent for {today}")
 
 
 # =============== !nextmeds COMMAND ===============
@@ -133,13 +155,9 @@ async def nextmeds(ctx):
     """Shows the next upcoming meds reminder."""
     now = datetime.now(SGT)
 
-    # Label, time, medicine text
     schedule = [
-        ("7:00 AM",  dtime(hour=7, minute=0, tzinfo=SGT),   "Mucopro 💊"),
-        ("12:30 PM", dtime(hour=12, minute=30, tzinfo=SGT), "Mucopro 💊"),
-        ("6:00 PM",  dtime(hour=18, minute=0, tzinfo=SGT),  "Pantec-DSR 💊"),
-        ("7:00 PM",  dtime(hour=19, minute=0, tzinfo=SGT),  "Mucopro 💊"),
-        ("9:00 PM",  dtime(hour=21, minute=0, tzinfo=SGT),  "Zycast 💊"),
+        (item["label"], dtime(hour=item["hour"], minute=item["minute"], tzinfo=SGT), item["med"])
+        for item in MED_SCHEDULE
     ]
 
     upcoming = None
@@ -174,6 +192,15 @@ async def nextmeds(ctx):
         )
     else:
         await ctx.send("No meds scheduled — this should never happen 😅")
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    print(f"Command error: {error}")
+    try:
+        await ctx.send(f"⚠️ There was an error: `{error}`")
+    except Exception:
+        pass
 
 
 # =============== MAIN ===============
